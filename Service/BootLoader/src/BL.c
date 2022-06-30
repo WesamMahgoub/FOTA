@@ -12,6 +12,7 @@
 #include "NVIC.h"
 #include "Uart.h"
 #include "UsartHal.h"
+#include "flash.h"
 
 /*flag to call Rx func only once*/
 static u8 Loc_u8State = 0;
@@ -37,16 +38,16 @@ u8 Bl_u8gState ;
 
 u32 Bl_u32gSizeCounter;
 
-
+u8 Bl_u8CrcResult;
 u32 Bl_u32FirstAppAdd;
 static void Bl_vidSendPosRes(void);
 static void Bl_vidSendNegRes(void);
-
+static u8 Bl_u8calc_crc(unsigned char *data, unsigned len);
 
 void BootLoaderInit(void)
 {
-	Usart_enuRegRxCompNotifyCbf(BootLoaderRxCbf,USART_BUS_NUMBER_1);
 	Usart_vidHalInit();
+	Usart_enuRegRxCompNotifyCbf(BootLoaderRxCbf,USART_BUS_NUMBER_1);
 }
 
 void BootLoaderRxCbf(void)
@@ -60,8 +61,15 @@ void BootLoaderFlashingSeq(void)
 	{
 	case  Bl_Idle:
 
-		/*do not have app*/
-		if(Loc_u8State==0 && (AppInfo->entry == (pu32)0xffffffff))
+		if(*MarkerState == Bl_AppExist)
+		{
+			if(AppInfo->entry)
+			{
+				AppInfo->entry();
+			}
+
+		}/*do not have app*/
+		else if(Loc_u8State==0 && (AppInfo->entry == 0xffffffff))
 		{
 			Usart_enuRecieveBufferZc(Bl_u8AppBuff,1,USART_BUS_NUMBER_1);
 			Loc_u8State = 1;
@@ -70,11 +78,12 @@ void BootLoaderFlashingSeq(void)
 
 		// we are coming from the app
 		// the condition of the flag not used
-		else if(Loc_u8State==0 && AppInfo->entry == 0xAAAAAAAA)
+		else if(Loc_u8State==0 && *MarkerState == Bl_FlashingState)
 		{
-			// Todo
-			// servId = Download req
-			// we will flash new app
+			/*the application received SESSION CONTROL */
+			Usart_enuRecieveBufferZc(Bl_u8AppBuff,1,USART_BUS_NUMBER_1);
+			ServId = Bl_DownloadRequest;
+
 		}
 		/*command received */
 		else if(Loc_u8State==1 && Bl_u8ReqRecieved == TRUE)
@@ -87,32 +96,23 @@ void BootLoaderFlashingSeq(void)
 			{
 				Bl_u8gState = SESSION_CONTROL;
 				//send pos ack
-				Bl_vidSendPosRes();
 				ServId = Bl_DownloadRequest;
 				/*write on the MarkerState BL_Flashing*/
-
 			}
 			/*wrong command*/
 			else
 			{
-				Loc_u8State= 0;
 				Bl_vidSendNegRes();
-			}
-		}
-		else if(*MarkerState == Bl_AppExist)
-		{
-			if(AppInfo->entry)
-			{
-				AppInfo->entry();
 			}
 		}
 		break;
 
-
 	case Bl_DownloadRequest:
+//		FlashUnlock();
 		if(Loc_u8State==0)
 		{
 			Usart_enuRecieveBufferZc(&Bl_u8AppBuff,1,USART_BUS_NUMBER_1);
+			Bl_vidSendPosRes();
 			Loc_u8State = 1;
 		}
 		else if(Loc_u8State==1 && Bl_u8ReqRecieved == TRUE)
@@ -122,7 +122,7 @@ void BootLoaderFlashingSeq(void)
 			if(Bl_u8AppBuff[0] == DOWNLOAD_REQUEST)
 			{
 				// 16 bec each member is word which 4 bytes
-				Usart_enuRecieveBufferZc(Bl_u8AppBuff,16,USART_BUS_NUMBER_1);
+				Usart_enuRecieveBufferZc(Bl_u8AppBuff,8,USART_BUS_NUMBER_1);
 				Bl_u8gState = DOWNLOAD_REQUEST;
 				Bl_vidSendPosRes();
 				Loc_u8State=2;
@@ -139,68 +139,121 @@ void BootLoaderFlashingSeq(void)
 		{
 			Loc_u8State = 0;
 			Bl_u8ReqRecieved = 0;
-			AppInfo->size = 	Bl_u8AppBuff[0]|Bl_u8AppBuff[1]<<8|Bl_u8AppBuff[2]<<16|Bl_u8AppBuff[3]<<24;
-			AppInfo->add  = 	Bl_u8AppBuff[4]|Bl_u8AppBuff[5]<<8|Bl_u8AppBuff[6]<<16|Bl_u8AppBuff[7]<<24;
-			AppInfo->entry=  Bl_u8AppBuff[8]|Bl_u8AppBuff[9]<<8|Bl_u8AppBuff[10]<<16|Bl_u8AppBuff[11]<<24;
-			AppInfo->crc  = 	Bl_u8AppBuff[12]|Bl_u8AppBuff[13]<<8|Bl_u8AppBuff[14]<<16|Bl_u8AppBuff[15]<<24;
+			u32 size = 	Bl_u8AppBuff[0]|((u32)Bl_u8AppBuff[1])<<8|((u32)Bl_u8AppBuff[2])<<16|  ((u32) Bl_u8AppBuff[3]) <<24;
+			u32 entry  = 	Bl_u8AppBuff[4]|((u32)Bl_u8AppBuff[5])<<8|((u32)Bl_u8AppBuff[6])<<16|((u32)Bl_u8AppBuff[7])<<24;
+			/*Erasing sector 1 for the APPINFO*/
+			FlashErase(FLASH_SECTOR1);
+			/*Erasing sector 2 for the MARKER*/
+			FlashErase(FLASH_SECTOR2);
+			FlashProgram(PARALLELISM_SIZE_32,size,&AppInfo->size);
+			FlashProgram(PARALLELISM_SIZE_32,0,AppInfo->add);
+			FlashProgram(PARALLELISM_SIZE_32,entry,AppInfo->entry);
 
 			Bl_u32gSizeCounter = AppInfo->size;
-			Bl_u32FirstAppAdd = AppInfo->add;
-
-			/*we should here erase sector*/
+			/*we should here erase apsector*/
+			FlashErase(FLASH_SECTOR5);
 
 			ServId = Bl_TransferData;
 		}
 		break;
 
 	case Bl_TransferData:
+		;
+		static u32 var=0;
+		static u8 Counter = 0;
 		if(Loc_u8State==0)
 		{
-			Usart_enuRecieveBufferZc(&Bl_u8AppBuff,1025,USART_BUS_NUMBER_1);
+			Usart_enuRecieveBufferZc(&Bl_u8AppBuff,1,USART_BUS_NUMBER_1);
+			Bl_vidSendPosRes(); // for download request is done
+			Loc_u8State = 1;
+		}
 
-			if(Bl_u8AppBuff[0] == Bl_TransferData)
+		else if( Bl_u8ReqRecieved == TRUE && Loc_u8State == 1)
+		{
+			if (Bl_u8AppBuff[0] == TRANSFER_DATA )
 			{
-				if(Bl_u32gSizeCounter <= 1024 && Bl_u32gSizeCounter > 0)
-				{
-					Usart_enuRecieveBufferZc(&Bl_u8AppBuff , Bl_u32gSizeCounter , USART_BUS_NUMBER_1);
-				}
-				else
-				{
-					Usart_enuRecieveBufferZc(&Bl_u8AppBuff , 1024 , USART_BUS_NUMBER_1);
-					//trace_printf("Interrupt enabled\n");
-				}
 				Bl_u8gState = Bl_u8AppBuff[0];
-				/*Enable the Rx Interrupt to receive Buffer with size of the Application */
-				Loc_u8State = 2;
-				Bl_u8ReqRecieved = 0;
+				Loc_u8State = 2 ;
 			}
-			else
+			else /*wrong command*/
 			{
 				Bl_vidSendNegRes();
-				ServId = SESSION_CONTROL;
 				Loc_u8State = 0;
 			}
 		}
+		// Bl_u8ReqRecieved is still TRUE
 		else if(Loc_u8State == 2 && Bl_u8ReqRecieved == TRUE)
 		{
-			Bl_u8ReqRecieved = FALSE;
-			Loc_u8State = 0;
-			if(Bl_u32gSizeCounter <= 1024 && Bl_u32gSizeCounter > 0)
+			//var=Bl_u8AppBuff[Counter]|((u32)Bl_u8AppBuff[Counter+1])<<8|((u32)Bl_u8AppBuff[Counter+2])<<16|((u32) Bl_u8AppBuff[Counter+3]) <<24;
+			//FlashProgram(PARALLELISM_SIZE_32,var,0x08020000+AppInfo->add+Counter);
+			if(Bl_u32gSizeCounter <= 1025 && Bl_u32gSizeCounter > 0)
 			{
-				/*Here we should flash Bl_u32gSizeCounter*/
-				Bl_vidSendPosRes();
-				ServId = Bl_TransferExit;
-				Loc_u8State = 0;
-				break;
+				Usart_enuRecieveBufferZc(&Bl_u8AppBuff , Bl_u32gSizeCounter , USART_BUS_NUMBER_1);
+
 			}
 			else
 			{
-				/*Here we should flash 1024 bytes*/
-				Bl_u32gSizeCounter = Bl_u32gSizeCounter - 1024;
+				Usart_enuRecieveBufferZc(&Bl_u8AppBuff , 1025 , USART_BUS_NUMBER_1);
 			}
 			Bl_vidSendPosRes();
-			trace_printf("Remaining %d bytes\n",Bl_u32gSizeCounter);
+			/*Enable the Rx Interrupt to receive Buffer with size of the Application */
+			Bl_u8ReqRecieved = FALSE;
+			Loc_u8State = 3;
 		}
+
+		else if(Loc_u8State == 3 && Bl_u8ReqRecieved == TRUE)/*flashing*/
+		{
+			// this condition to enter once at the beginning of 1k block
+			if(Counter == 0)
+			{
+				Bl_u8CrcResult= Bl_u8calc_crc(&Bl_u8AppBuff, 1024);/*should be calculated once*/
+			}
+			//*checking on CRC*//
+			if(Bl_u8AppBuff[1024] != Bl_u8CrcResult)
+			{
+				Bl_vidSendNegRes();
+				Loc_u8State = 2;
+			}
+			else
+			{
+				/*CRC is good, let's flash*/
+				if(Bl_u32gSizeCounter>1024)
+				{
+					var=Bl_u8AppBuff[Counter]|((u32)Bl_u8AppBuff[Counter+1])<<8|((u32)Bl_u8AppBuff[Counter+2])<<16|  ((u32) Bl_u8AppBuff[Counter+3]) <<24;
+					FlashProgram(PARALLELISM_SIZE_32,var,0x08020000+AppInfo->add+Counter);
+
+					Counter+=4;
+					if (Counter == 1024 )
+					{
+						Bl_u32gSizeCounter = Bl_u32gSizeCounter - 1024;
+						/*update add of the app info --> where I am standing in the flash*/
+						FlashProgram(PARALLELISM_SIZE_32,AppInfo->size - Bl_u32gSizeCounter,&AppInfo->add);
+						Counter =  0 ;
+						Bl_vidSendPosRes();
+						Loc_u8State = 2;// for recieving another buffer
+					}
+
+				}
+				/*the last part*/
+				else if(Bl_u32gSizeCounter <= 1024 && Bl_u32gSizeCounter > 0)
+				{
+					/*Here we should flash Bl_u32gSizeCounter*/
+					FlashProgram(PARALLELISM_SIZE_32,Bl_u32gSizeCounter,0x08020000+AppInfo->add+Counter);
+					Counter += 4;
+					if (Counter == Bl_u32gSizeCounter )
+					{
+						Counter =  0 ;
+						Loc_u8State = 0;
+						Bl_vidSendPosRes();
+						ServId = Bl_TransferExit;
+					}
+				}
+			}
+
+		}
+
+
+
 		break;
 	case Bl_TransferExit:
 		if(Loc_u8State==0)
@@ -214,20 +267,22 @@ void BootLoaderFlashingSeq(void)
 
 			if(Bl_u8AppBuff[0] == TRANSFER_EXIT)
 			{
+				/* update marker with app exist */
+				/*update entry point */
+				FlashProgram(PARALLELISM_SIZE_32,Bl_AppExist,MarkerState);
+				FlashLock();
 				// 16 bec each member is word which 4 bytes
 				Bl_u8gState = TRANSFER_EXIT;
 				Bl_vidSendPosRes();
+				ServId = Bl_Idle;
 			}
 			else
 			{
 				// I have doubt about this assignation
-				ServId =Bl_Idle ;
+				ServId =Bl_TransferExit ;
 				Bl_vidSendNegRes();
 			}
 		}
-		break;
-	case Bl_CheckCRC:
-
 		break;
 	}
 }
@@ -235,9 +290,45 @@ void BootLoaderFlashingSeq(void)
 
 static void Bl_vidSendPosRes(void)
 {
+
 	Usart_enuHalSendDataSync(0x7F , Usart_enuBusNum1);
+	trace_printf("pos");
 }
 static void Bl_vidSendNegRes(void)
 {
 	Usart_enuHalSendDataSync(0x10 + Bl_u8gState , Usart_enuBusNum1);
 }
+
+static u8 Bl_u8calc_crc(unsigned char *data, unsigned len)
+{
+	char crc = 0;
+	for ( int i = 0 ; i < len; i++ )
+		crc = crc ^ data[i];
+	return crc;
+}
+
+
+//			else
+//			{
+//
+//				/*static counter = 0;*/
+//				/*Here we should calculate CRC by changing state of servId to crccheck*/
+//				/* and we will have if else
+//				 * if condition is flase then send neg ack
+//				 *
+//				 * else
+//				 * 	the logic below
+//				 * */
+//				/*Here we should flash 1024 bytes*/
+//
+//				/*we should flash all the 1K before proceeding */
+//				/*counter += 4*/
+//				/*flasfWord(0x08020000+appinfo->add+counter,buffer[counter]);*/
+//				//				if (counter == 1024 )
+//				//				{
+//				//					Bl_u32gSizeCounter = Bl_u32gSizeCounter - 1024;
+//				// 					/*appinfo->add = app->info->size- Bl_u32gSizeCounter*/
+//				//					counter =  0 ;
+//				//					Bl_vidSendPosRes();
+//				//				}
+//			}

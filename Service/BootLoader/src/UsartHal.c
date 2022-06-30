@@ -238,10 +238,7 @@ void Usart_enuRecieveBufferSync(pu8 Z_pu8Buffer, u16 copy_u16Size,Usart_tenuBusN
 	}
 }
 
-/*first arg is pointer to the buffer created by the user in the app layer which will be filled after the notify cbf which will
- * be called by the handler of the bus which is the thirdarg
- * second arg is the size of the buffer sent
- * */
+
 UsartHal_tenuErrorStatus Usart_enuRecieveBufferZc(pu8 Z_pu8Buffer, u16 copy_u16Size,Usart_tenuBusNum Copy_enuBusNum)
 {
 	UsartHal_tenuErrorStatus Loc_enuErrorStatus = UsartHal_enuOk;
@@ -474,6 +471,7 @@ UsartHal_tenuErrorStatus Usart_enuRegTxCompNotifyCbf(pcallback Usart_pcbfNotifyA
 }
 UsartHal_tenuErrorStatus Usart_enuRegRxCompNotifyCbf(pcallback Usart_pcbfNotifyApp,Usart_tenuBusNum Copy_enuUsartBusNum)
 {
+
 	Usart_tenuErrorStatus Loc_enuErrorStatus;
 	if(Usart_pcbfNotifyApp==NULL)
 	{
@@ -481,6 +479,7 @@ UsartHal_tenuErrorStatus Usart_enuRegRxCompNotifyCbf(pcallback Usart_pcbfNotifyA
 	}
 	else
 	{
+		trace_printf("reg");
 		Usart_pcbfRxNotifyApp[Copy_enuUsartBusNum]=Usart_pcbfNotifyApp;
 	}
 
@@ -488,19 +487,12 @@ UsartHal_tenuErrorStatus Usart_enuRegRxCompNotifyCbf(pcallback Usart_pcbfNotifyA
 }
 
 
-// in this controller we have only one handler for the BUS
-// so we should in this handler checking on the flags to know we enter the handler because of what?
-// in AVR we have handler for Tx and another one for Rx
-// this is a CBF called from the handler in the USART Driver
+
 static void Usart1_vidHandlerCbf(void)
 {
-	//creating loc var
-	//send the add to the recieve func. async which is in HAL
+
 	if(Usart_u8ReadTcFlag(USART_1) && (Usart1_TxBsy == 1)) // checking on TC flag because we may enter
-		// the handler because of RX also and for parity ..etc..
-		// also we check on TxBsy because if the TC flag is raised after finishing Sending the data, if we not check the
-		//TxBsy flag we will enter in this condition while we sent the req data and we may come to this handler for recieving data
-		// not sending
+
 	{
 		if(Usart1_TxGlobalBuffer.used == Usart1_TxGlobalBuffer.size)
 		{
@@ -526,15 +518,11 @@ static void Usart1_vidHandlerCbf(void)
 		/*I should check on bsy also bec I may enter the interrupt becasue of Tx so I will enter here if only the user
 		 * request this */
 	{
-		/**xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx**/
-		// here will send the address of the loc then after finshing here he will
-		// = the loc var with the buffer sent by the user
 		Usart_enuRecieveDataAsync(USART_1,Usart1_RxGlobalBuffer.buffer+Usart1_RxGlobalBuffer.used);
 		Usart1_RxGlobalBuffer.used++;
-		// clear 27tyati
-//			Uart_ClearRxFlag(USART_1);
 
-		if (Usart1_RxGlobalBuffer.used > Usart1_RxGlobalBuffer.size)
+
+		if (Usart1_RxGlobalBuffer.used == Usart1_RxGlobalBuffer.size)
 		{
 			Usart1_RxBsy = 0;// must clear this flag
 			Usart1_RxGlobalBuffer.used = 0;
@@ -544,20 +532,11 @@ static void Usart1_vidHandlerCbf(void)
 			Usart_enuRxInterruptCtrl(USART_1,Usart_enuIntDisabled);
 			if(Usart_pcbfRxNotifyApp[Usart_enuBusNum1]!=NULL)
 			{
+				trace_printf("calling cbf");
 				Usart_pcbfRxNotifyApp[Usart_enuBusNum1]();
 			}
 		}
-//		else
-//		{
-//			/**xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx**/
-//			// here will send the address of the loc then after finshing here he will
-//			// = the loc var with the buffer sent by the user
-//			Usart_enuRecieveDataAsync(USART_1,Usart1_RxGlobalBuffer.buffer+Usart1_RxGlobalBuffer.used);
-//			Usart1_RxGlobalBuffer.used++;
-//			// clear 27tyati
-////			Uart_ClearRxFlag(USART_1);
 
-//		}
 	}
 
 }
@@ -686,64 +665,4 @@ static void Dma2_vidStream5HandlerCbf(void)
 
 }
 
-
-
-
-//Uart_RegisterHalCbf(Usart1_vidHandlerCbf,USART_BUSNUM_1);
-//static void Usart1_vidHandlerCbf(void)
-//{
-//	if(Usart_ReadTcFlag(USART_1) == 1 && (Usart1_GlobalBuffer.used < Usart1_GlobalBuffer.size)) // checking on TC flag because we may enter
-//		// the handler because of RX also and for parity ..etc..
-//	{
-//		Usart1_GlobalBuffer.used++;
-//		Usart_vidSendDataAsync(Usart1_GlobalBuffer.buffer[Usart1_GlobalBuffer.used], USART_1);
-//	}
-//	else
-//	{
-//		Usart1_TxBsy = 0;
-//		Usart1_GlobalBuffer.used = 0;
-//		Usart_pcbfTxNotifyApp[Usart_enuBusNum_1]();
-//	}
-//}
-
-
-/*2zai 2l user hysta5dam func zy keda 2l mfrood yb3at bas 2l func f m4 3arf 2zai 2handle dah*/
-//UsartHal_tenuErrorStatus Dma_enuTransCompNotifyCbf(pcallback Dma_pcbfNotifyApp,Dma_tenuStreamNum Copy_enuDmaStreamNum)
-//{
-//	Usart_tenuErrorStatus Loc_enuErrorStatus;
-//	if(Dma_pcbfNotifyApp==NULL)
-//	{
-//		Loc_enuErrorStatus = Usart_enuNullptr;
-//	}
-//	else
-//	{
-//		switch(Copy_enuDmaStreamNum)
-//		{
-//		case Dma_Stream_0:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_1]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_1:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_2]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_2:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_3:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_4:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_5:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_6:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		case Dma_Stream_7:
-//			Usart_pcbfDma1NotifyApp[Usart_enuBusNum_6]=Dma_pcbfNotifyApp;
-//			break;
-//		}
-//	}
-//}
 

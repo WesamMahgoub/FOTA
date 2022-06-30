@@ -45,14 +45,13 @@ Usart_tenuErrorStatus Uart_enuInit(Uart_tCfg* copy_UartCfg)
 	Loc_ptrReg->USART_BRR=(UsartMantissa<<4)|UsartFraction;
 	Loc_ptrReg->USART_CR1&=~USART_u16CR1_CLR_MASK;
 	Loc_ptrReg->USART_CR1=(
-			copy_UartCfg->Usart_u16OverSampling|//Oversampling mode
-			copy_UartCfg->Usart_u16DataLength|	//This bit determines the word length. It is set or cleared by software.
-			//0: 1 Start bit, 8 Data bits, n Stop bit
-			//1: 1 Start bit, 9 Data bits, n Stop bit
-			copy_UartCfg->Usart_u16InterruptCtrl|//This bit enables/disables the interrupt.
-			copy_UartCfg->Usart_u16TransmitCtrl|//This bit enables/disables the transmitter.
-			copy_UartCfg->Usart_u16RecieveCtrl);//This bit enables/disables the receiver.
-	Loc_ptrReg->USART_CR1|=USART_u16MASK_UE_ENABLE;//(enable uart) UE in CTRl1 reg
+			copy_UartCfg->Usart_u16OverSampling|
+			copy_UartCfg->Usart_u16DataLength|
+
+			copy_UartCfg->Usart_u16InterruptCtrl|
+			copy_UartCfg->Usart_u16TransmitCtrl|
+			copy_UartCfg->Usart_u16RecieveCtrl);
+	Loc_ptrReg->USART_CR1|=USART_u16MASK_UE_ENABLE;
 
 	Loc_ptrReg->USART_CR2&=USART_u16CR2_CLR_MASK;
 	Loc_ptrReg->USART_CR2|=USART_u16MASK_ONE_STOP_BIT;
@@ -71,8 +70,7 @@ Usart_tenuErrorStatus Usart_enuSendDataSync(u32 Byte, void* Channel)
 	{
 		Loc_enuErrorStatus = Usart_enuNullptr;
 	}
-	//polling till the TC flag is raised to one when data has been all shifted to be sent
-	while(((((Uart_tstrReg*)Channel)->USART_SR)&USART_u16TC_MASK)==0);//TXE if 1 the data in shadow reg is sent to the shift reg
+	while(((((Uart_tstrReg*)Channel)->USART_SR)&USART_u16TC_MASK)==0);
 	((Uart_tstrReg*)Channel)->USART_DR = Byte;
 
 	return Loc_enuErrorStatus;
@@ -236,21 +234,6 @@ Usart_tenuErrorStatus Uart_enuRegisterHalCbf(pcbf Uart_pcbfManCallBack,u8 Copy_u
 	{
 		Uart_pcbfManCbf[Copy_u8BusNum]=Uart_pcbfManCallBack;
 
-		/*loom nafsak ktirr*/
-//		switch (Copy_u8BusNum)
-//		{
-//		case USART_BUS_NUMBER_1:
-//
-//			break;
-//		case USART_BUS_NUMBER_2:
-//
-//			Uart_pcbfManCbf[USART_BUS_NUMBER_1]=Uart_pcbfManCallBack;
-//			break;
-//		case USART_BUS_NUMBER_6:
-//
-//			Uart_pcbfManCbf[USART_BUS_NUMBER_1]=Uart_pcbfManCallBack;
-//			break;
-//		}
 	}
 
 	return Loc_enuErrorStatus;
@@ -260,6 +243,7 @@ void USART1_IRQHandler(void)
 {
   if(Uart_pcbfManCbf[USART_BUS_NUMBER_1])
   {
+
     Uart_pcbfManCbf[USART_BUS_NUMBER_1]();
   }
 }

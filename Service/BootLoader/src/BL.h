@@ -37,10 +37,9 @@ typedef enum
 
 typedef struct
 {
-	u32 size;
-	pu32 add;
-	void (*entry)(void);
-	u32 crc;
+	u32 size; // size of the app
+	pu32 add; // the start add of the app
+	void (*entry)(void); // entry point of the app
 
 }AppInfo_t;
 
